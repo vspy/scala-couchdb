@@ -19,15 +19,33 @@ case class CouchDB(db:String, serverUrl:String = "http://localhost:5984/") {
   type F[T] = Future[R[T]]
   type JsonObj = Map[String,Any]
 
+  /**
+   * returns true if database exists
+   */
+  def exists:F[Boolean] = 
+    get(url,
+      (s:Int, h:Map[String,String], is:InputStream) =>
+        s match {
+          case 200 => Right(true)
+          case 404 => Right(false)
+          case x => Left(CouchDBFormatError("Expected status to be either 200(OK) or 404(Not found), but got "+x))
+        }
+    )
+
+  /**
+   * returns server information map {"couchdb":"Welcome", "version":...}
+   */
   def serverInfo:F[JsonObj] =
     get(serverUrl, 
       (s:Int, h:Map[String,String], is:InputStream) =>
        statusMustBeOK(s, jsonObj(is))
     )
 
+  // urls
+  val url = serverUrl+"/"+db+"/"
 
   // mapped future
-  case class MappedFuture[A,B](f:Future[A], fn : A=>B) extends Future[B] {
+  private case class MappedFuture[A,B](f:Future[A], fn : A=>B) extends Future[B] {
     def isSet = f.isSet
     def apply = fn(f.apply)
     def respond(k: B=>Unit) = 
@@ -102,7 +120,7 @@ case class CouchDB(db:String, serverUrl:String = "http://localhost:5984/") {
   private def httpError[A]:(HttpError)=>R[A] =
     (e:HttpError) => Left(CouchDBConnectionError(e.message, e.reason))
 
-  implicit private def stream2string(is:InputStream):String = {
+  private def stream2string(is:InputStream):String = {
     val buffer = new Array[Char](16384)
     val out = new StringBuilder
     val in = new InputStreamReader(is, "UTF-8")

@@ -7,7 +7,7 @@ import java.io.InputStream
 class CouchDBSpec extends Specification {
 
   "couch db driver client" should {
-    val dbName = "driverTest"
+    val dbName = "driver_test_db"
     val db = CouchDB(dbName)
 
     "report server info" in {
@@ -19,6 +19,14 @@ class CouchDBSpec extends Specification {
           }
       )
     }
+
+    "report if database exists" in {
+      db.exists() fold (
+        e => { fail("failed with "+e) }
+        ,x => x must beFalse
+      )
+    }
+
 
   }
 
