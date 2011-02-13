@@ -18,6 +18,16 @@ case class CouchDB(db:String, serverUrl:String = "http://localhost:5984/") {
   type R[T] = Either[CouchDBError,T]
   type F[T] = Future[R[T]]
   type JsonObj = Map[String,Any]
+  type IdRev = Tuple2[String,String]
+
+  /**
+   * returns server information map {"couchdb":"Welcome", "version":...}
+   */
+  def serverInfo:F[JsonObj] =
+    get(serverUrl, 
+      (s:Int, h:Map[String,String], is:InputStream) =>
+       statusMustBeOK(s, jsonObj(is))
+    )
 
   /**
    * returns true if database exists
@@ -33,16 +43,66 @@ case class CouchDB(db:String, serverUrl:String = "http://localhost:5984/") {
     )
 
   /**
-   * returns server information map {"couchdb":"Welcome", "version":...}
-   */
-  def serverInfo:F[JsonObj] =
-    get(serverUrl, 
+   * creates database
+   */ 
+  def createDb:F[Unit] = 
+    put(url,
       (s:Int, h:Map[String,String], is:InputStream) =>
-       statusMustBeOK(s, jsonObj(is))
+        s match {
+          case 201 => Right({})
+          case x => Left(CouchDBFormatError("Expected status to be 201(Created), but got "+x))
+        }
     )
+
+  /**
+   * creates database if not exists
+   */
+  def createDbIfNotExists:F[Unit] = 
+    put(url,
+      (s:Int, h:Map[String,String], is:InputStream) =>
+        s match {
+          case 201 => Right({})
+          case 412 => Right({})
+          case x => Left(CouchDBFormatError("Expected status to be either 201(Created) or 412(Precondition failed), but got "+x))
+        }
+    )
+  /**
+   * delete database
+   */
+  def deleteDb:F[Unit] = 
+    delete(url,
+      (s:Int, h:Map[String,String], is:InputStream) =>
+        s match {
+          case 200 => Right({})
+          case x => Left(CouchDBFormatError("Expected status to be 200(OK), but got "+x))
+        }
+    )
+    
+
+  /**
+   * creates doc
+   */
+/*  def create(doc:JsonObj,id:Option[String] = None):F[ =
+    id match {
+      case None => 
+        post(url,idRevResponse)
+      case Some(id) =>
+        put(docUrl(id),idRevResponse)
+    }
+
+  private def idRevResponse =
+    (s:Int, h:Map[String,String], is:InputStream) => {
+      val json = createdJson(s,h,is)
+      (json.get("id"), json.get("rev")) match {
+        case (Some(id:String),Some(rev:String)) => Right((id,rev))
+        case _ => Left(CouchDBFormatError("Expected both id and rev in the response, but got: "+json))
+      }
+    }*/
 
   // urls
   val url = serverUrl+"/"+db+"/"
+
+  private def docUrl(id:String) = url + id // TODO: urlencode
 
   // mapped future
   private case class MappedFuture[A,B](f:Future[A], fn : A=>B) extends Future[B] {
@@ -56,6 +116,10 @@ case class CouchDB(db:String, serverUrl:String = "http://localhost:5984/") {
   }
 
   // Http helpers
+  private def createdJson: (Int,Map[String,String], InputStream)=>R[JsonObj] =
+    (s:Int, h:Map[String,String], is:InputStream) =>
+      statusMustBeCreated(s, checkContentType(h, jsonObj(is) ))
+
   private def okJson: (Int,Map[String,String], InputStream)=>R[JsonObj] =
     (s:Int, h:Map[String,String], is:InputStream) =>
       statusMustBeOK(s, checkContentType(h, jsonObj(is) ))
@@ -95,8 +159,39 @@ case class CouchDB(db:String, serverUrl:String = "http://localhost:5984/") {
                 x fold ( httpError, identity ) 
           )
 
+  private def put[A](
+    _url:String
+    ,fn:(Int, Map[String, String], InputStream)=>R[A]
+  ):F[A] = MappedFuture(
+            Http(
+              method = "PUT"
+              ,url = _url
+              ,onComplete = fn
+              ,headers = defaultHeaders
+            )
+            , ( x:Either[HttpError,R[A]] ) => 
+                x fold ( httpError, identity ) 
+          )
+
+  private def delete[A](
+    _url:String
+    ,fn:(Int, Map[String, String], InputStream)=>R[A]
+  ):F[A] = MappedFuture(
+            Http(
+              method = "DELETE"
+              ,url = _url
+              ,onComplete = fn
+              ,headers = defaultHeaders
+            )
+            , ( x:Either[HttpError,R[A]] ) => 
+                x fold ( httpError, identity ) 
+          )
+
   private def statusMustBeOK[B](a:Int, fn: =>R[B]):R[B] =
-    mustBe("status",a,200,fn)
+    statusMustBe(a,200,fn)
+
+  private def statusMustBeCreated[B](a:Int, fn: =>R[B]):R[B] =
+    statusMustBe(a,201,fn)
 
   private def statusMustBe[B](a:Int, b:Int, fn: =>R[B]):R[B] =
     mustBe("status",a,b,fn)

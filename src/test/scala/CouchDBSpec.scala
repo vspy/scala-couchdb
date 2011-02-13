@@ -9,10 +9,11 @@ class CouchDBSpec extends Specification {
   "couch db driver client" should {
     val dbName = "driver_test_db"
     val db = CouchDB(dbName)
+    def failed = (e:CouchDBError) => { fail("failed with "+e) }
 
     "report server info" in {
       db.serverInfo() fold (
-        e => { fail("failed with "+e) }
+        failed
         ,(x:Map[String,Any]) => {
             x.get("version") must beSome
             x.get("couchdb") must beSome
@@ -22,8 +23,31 @@ class CouchDBSpec extends Specification {
 
     "report if database exists" in {
       db.exists() fold (
-        e => { fail("failed with "+e) }
+        failed
         ,x => x must beFalse
+      )
+    }
+
+    "create and delete database" in {
+      db.createDb() fold (
+        failed
+        , _ => {true must beTrue}
+      )
+      db.createDbIfNotExists() fold (
+        failed
+        , _ => {true must beTrue}
+      )
+      db.deleteDb() fold (
+        failed
+        , _ => {true must beTrue}
+      )
+      db.createDbIfNotExists() fold (
+        failed
+        , _ => {true must beTrue}
+      )
+      db.deleteDb() fold (
+        failed
+        , _ => {true must beTrue}
       )
     }
 
